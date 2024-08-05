@@ -1,0 +1,82 @@
+
+
+
+##########
+#!/bin/bash
+#SBATCH -A pccr                # Allocation name
+#SBATCH -t 8:00:00             # Maximum runtime
+#SBATCH -N 1                   # Number of nodes
+#SBATCH -n 4                   # Number of cores
+#SBATCH --mem=32G              # Memory allocation
+#SBATCH --job-name=demultiplex_and_trim # Job name
+#SBATCH --mail-type=FAIL,BEGIN,END # Mail events
+#SBATCH --error=%x-%J-%u.err   # Error file
+#SBATCH --output=%x-%J-%u.out  # Output file
+
+# Load necessary modules
+module --force purge
+module load biocontainers
+module load fastp
+
+# Paths to FASTQ files
+UND_FASTQ_R1=/depot/edykhui/data/H202SC24042006/X202SC24042006-Z01-F001/usftp21.novogene.com/01.RawData/Undetermined/Undetermined_Undetermined_227CC2LT4_L4_1.fq.gz
+UND_FASTQ_R2=/depot/edykhui/data/H202SC24042006/X202SC24042006-Z01-F001/usftp21.novogene.com/01.RawData/Undetermined/Undetermined_Undetermined_227CC2LT4_L4_2.fq.gz
+
+# Known indices
+KNOWN_INDICES=("TAAGGCGAAT+" "CGTACTAGAT+" "TCCTGAGCAT+")
+
+# Sample names
+SAMPLES=("Caki2_PB1_VHL_Rep1" "Caki2_PB1_Rep1" "Caki2_Empty_Rep1")
+
+# Output directories
+OUTPUT_DIR=/depot/edykhui/data/ming/test
+BINNED_FASTQ_DIR=$OUTPUT_DIR/binned_fastq
+TRIMMED_FASTQ_DIR=$OUTPUT_DIR/trimmed_fastq
+QUALITY_COUNTS_FILE=$OUTPUT_DIR/quality_counts.txt
+UNIQUE_INDICES_FILE=$OUTPUT_DIR/unique_indices.txt
+
+mkdir -p $OUTPUT_DIR
+mkdir -p $BINNED_FASTQ_DIR
+mkdir -p $TRIMMED_FASTQ_DIR
+
+# Initialize counters
+declare -A index_counts
+declare -A read_counts_per_sample
+
+# Function to count reads and bin by indices
+bin_reads() {
+    local fastq_r1=$1
+    local fastq_r2=$2
+    local index=$3
+    local sample=$4
+
+    zcat "$fastq_r1" | grep -A 3 "^@.* $index" | grep -v "^--$" > $BINNED_FASTQ_DIR/"$sample"_R1.fq
+    zcat "$fastq_r2" | grep -A 3 "^@.* $index" | grep -v "^--$" > $BINNED_FASTQ_DIR/"$sample"_R2.fq
+}
+
+# Process each index and sample
+for i in "${!KNOWN_INDICES[@]}"; do
+    index="${KNOWN_INDICES[i]}"
+    sample="${SAMPLES[i]}"
+    bin_reads "$UND_FASTQ_R1" "$UND_FASTQ_R2" "$index" "$sample"
+done
+
+# Run fastp on each pair of binned FASTQ files
+for i in "${!SAMPLES[@]}"; do
+    sample="${SAMPLES[i]}"
+    fastp \
+        -i $BINNED_FASTQ_DIR/"$sample"_R1.fq \
+        -I $BINNED_FASTQ_DIR/"$sample"_R2.fq \
+        -o $TRIMMED_FASTQ_DIR/"$sample"_R1.trimmed.fq \
+        -O $TRIMMED_FASTQ_DIR/"$sample"_R2.trimmed.fq \
+        --length_required 50 -q 30 \
+        --detect_adapter_for_pe \
+        --unpaired1 $TRIMMED_FASTQ_DIR/"$sample"_R1.unpaired.fq \
+        --unpaired2 $TRIMMED_FASTQ_DIR/"$sample"_R2.unpaired.fq \
+        -h $TRIMMED_FASTQ_DIR/"$sample".out.html \
+        -j $TRIMMED_FASTQ_DIR/"$sample".out.json
+done
+
+# Print completion message
+echo "Demultiplexing and trimming complete. Results are saved in $TRIMMED_FASTQ_DIR"
+
