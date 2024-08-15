@@ -80,3 +80,71 @@ done
 # Print completion message
 echo "Demultiplexing and trimming complete. Results are saved in $TRIMMED_FASTQ_DIR"
 
+###########################
+#########################full index
+!/bin/bash
+#SBATCH -A pccr                # Allocation name
+#SBATCH -t 2:00:00             # Maximum runtime
+#SBATCH -N 1                   # Number of nodes
+#SBATCH -n 4                   # Number of cores
+#SBATCH --mem=16G              # Memory allocation
+#SBATCH --job-name=bin_reads_full_index # Job name
+#SBATCH --mail-type=FAIL,BEGIN,END # Mail events
+#SBATCH --error=%x-%J-%u.err   # Error file
+#SBATCH --output=%x-%J-%u.out  # Output file
+
+# Load necessary modules
+module --force purge
+module load biocontainers
+
+# Paths to FASTQ files
+UND_FASTQ_R1=/depot/edykhui/data/H202SC24042006/X202SC24042006-Z01-F001/usftp21.novogene.com/01.RawData/Undetermined/Undetermined_Undetermined_227CC2LT4_L4_1.fq.gz
+UND_FASTQ_R2=/depot/edykhui/data/H202SC24042006/X202SC24042006-Z01-F001/usftp21.novogene.com/01.RawData/Undetermined/Undetermined_Undetermined_227CC2LT4_L4_2.fq.gz
+
+# Known indices with the full dual index
+KNOWN_INDICES=("TAAGGCGAAT+GTGTAGATCT" "CGTACTAGAT+GTGTAGATCT" "TCCTGAGCAT+GTGTAGATCT")
+
+# Sample names
+SAMPLES=("Caki2_PB1_VHL_Rep1" "Caki2_PB1_Rep1" "Caki2_Empty_Rep1")
+
+# Output directories
+OUTPUT_DIR=/depot/edykhui/data/ming/test
+BINNED_FASTQ_DIR=$OUTPUT_DIR/binned_fastq
+
+# Create output directories
+mkdir -p $OUTPUT_DIR
+mkdir -p $BINNED_FASTQ_DIR
+
+# Function to bin reads by indices
+bin_reads() {
+    local fastq_r1=$1
+    local fastq_r2=$2
+    local index_seq=$3
+    local sample=$4
+
+    # Create output files
+    local out_r1=$BINNED_FASTQ_DIR/"$sample"_R1.fq
+    local out_r2=$BINNED_FASTQ_DIR/"$sample"_R2.fq
+
+    zcat "$fastq_r1" | awk -v index_seq="$index_seq" -v out_r1="$out_r1" 'BEGIN {OFS = "\n"} 
+    {
+        getline seq; getline plus; getline qual;
+        if ($0 ~ index_seq) {print $0, seq, plus, qual > out_r1}
+    }'
+    zcat "$fastq_r2" | awk -v index_seq="$index_seq" -v out_r2="$out_r2" 'BEGIN {OFS = "\n"} 
+    {
+        getline seq; getline plus; getline qual;
+        if ($0 ~ index_seq) {print $0, seq, plus, qual > out_r2}
+    }'
+}
+
+# Bin reads for each sample
+for i in "${!KNOWN_INDICES[@]}"; do
+    index_seq="${KNOWN_INDICES[i]}"
+    sample="${SAMPLES[i]}"
+    bin_reads "$UND_FASTQ_R1" "$UND_FASTQ_R2" "$index_seq" "$sample"
+done
+
+# Print completion message
+echo "Binning complete. Binned FASTQ files are saved in $BINNED_FASTQ_DIR"
+
